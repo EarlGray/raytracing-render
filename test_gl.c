@@ -22,7 +22,7 @@
 
 #include "scene1.h"
 
-#define USE_MT  (1)
+#define USE_MT  (0)
 
 GLint win_width = 512;
 GLint win_height = 512;
@@ -54,8 +54,9 @@ void fps_handler(void) {
     struct timeval this_time = { 0 };
     gettimeofday(&this_time, NULL);
     if (this_time.tv_sec >= last_time.tv_sec + FPS_INTERVAL) {
+        float dt = this_time.tv_sec - last_time.tv_sec;
         last_time = this_time;
-        float fps = frames / (float)FPS_INTERVAL;
+        float fps = frames / dt;
         printf("FPS: %f\n", fps);
         frames = 0;
     }
@@ -195,5 +196,7 @@ int main(int argc, char *argv[]) {
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, TEX_WIDTH, TEX_HEIGHT, 0, GL_RGB, GL_UNSIGNED_BYTE, canvas);
         
     glutMainLoop();
+
+    return 0;
 }
 
