@@ -8,9 +8,13 @@
 #include <kdtree.h>
 #include <utils.h>
 
-#define MAX_TREE_DEPTH 11
+#define MAX_TREE_DEPTH 8
 
 #define OBJECTS_IN_LEAF 6
+
+#define MAX_SPLITS_OF_VOXEL 10
+
+#define SPLIT_COST 0.5
 
 #if defined(__GNUC__) && (__GNUC__ * 100 +  __GNUC_MINOR__) >= 403
 # define __hot   __attribute__((hot))
@@ -26,19 +30,13 @@ Voxel
 make_initial_voxel(Object3d ** objects,
                    int objects_count);
 
-KDNode *
+inline KDNode *
 rec_build(Object3d ** objects,
           int objects_count,
           Voxel v,
           int iter);
 
-static inline Boolean
-terminate(Object3d ** objects,
-          const int objects_count,
-          const Voxel v,
-          const int recursion_level);
-
-KDNode *
+inline KDNode *
 make_leaf(Object3d ** objects,
           int objects_count);
 
@@ -46,8 +44,14 @@ static inline void
 find_plane(Object3d ** objects,
            const int objects_count,
            const Voxel v,
+           const int tree_depth,
            enum Plane * const p,
            Coord * const c);
+
+static inline int
+objects_in_voxel(Object3d ** objects,
+                 const int objects_count,
+                 const Voxel v);
 
 static inline void
 split_voxel(const Voxel v,
@@ -84,7 +88,7 @@ static inline Boolean
 point_in_voxel(const Point3d p,
                const Voxel v);
 
-Boolean
+inline Boolean
 find_intersection_node(KDNode * const node,
                        const Voxel v,
                        const Point3d vector_start,
@@ -93,20 +97,22 @@ find_intersection_node(KDNode * const node,
                        Point3d * const nearest_intersection_point_ptr,
                        Float * const nearest_intersection_point_dist_ptr);
 
-Boolean
+inline Boolean
 is_intersect_anything_node(KDNode * const node,
                            const Voxel v,
                            const Point3d vector_start,
                            const Vector3d vector);
 
-void release_kd_node(KDNode * node);
+void
+release_kd_node(KDNode * node);
 
 
 // Code
 // --------------------------------------------------------------
 
-static inline Boolean point_in_voxel(const Point3d p,
-                                     const Voxel v) {
+static inline Boolean
+point_in_voxel(const Point3d p,
+               const Voxel v) {
     
     return ((p.x > v.x_min - EPSILON) && (p.x < v.x_max + EPSILON) &&
             (p.y > v.y_min - EPSILON) && (p.y < v.y_max + EPSILON) &&
@@ -114,12 +120,14 @@ static inline Boolean point_in_voxel(const Point3d p,
 }
 
 
-inline void release_kd_tree(KDTree * tree) {
+void
+release_kd_tree(KDTree * tree) {
     release_kd_node(tree->root);
     free(tree);
 }
 
-void release_kd_node(KDNode * node) {
+void
+release_kd_node(KDNode * node) {
     if(node->l)
         release_kd_node(node->l);
     if(node->r)
@@ -129,8 +137,9 @@ void release_kd_node(KDNode * node) {
     free(node);
 }
 
-inline KDTree * build_kd_tree(Object3d ** objects,
-                              int objects_count) {
+KDTree *
+build_kd_tree(Object3d ** objects,
+              int objects_count) {
     
     KDTree * tree = malloc(sizeof(KDTree));
     tree->bounding_box = make_initial_voxel(objects, objects_count);
@@ -138,18 +147,19 @@ inline KDTree * build_kd_tree(Object3d ** objects,
     return tree;
 }
 
-KDNode * rec_build(Object3d ** objects,
-                   int objects_count,
-                   Voxel v,
-                   int iter) {
-    
-    if(terminate(objects, objects_count, v, iter)) {
-        return make_leaf(objects, objects_count);
-    }
+inline KDNode *
+rec_build(Object3d ** objects,
+          int objects_count,
+          Voxel v,
+          int iter) {
     
     enum Plane p;
     Coord c;
-    find_plane(objects, objects_count, v, &p, &c);
+    find_plane(objects, objects_count, v, iter, &p, &c);
+    
+    if(p == NONE) {
+        return make_leaf(objects, objects_count);
+    }
     
     Voxel vl;
     Voxel vr;
@@ -173,9 +183,10 @@ KDNode * rec_build(Object3d ** objects,
     return node;
 }
 
-static inline int filter_overlapped_objects(Object3d ** objects,
-                                            const int objects_count,
-                                            const Voxel v) {
+static inline int
+filter_overlapped_objects(Object3d ** objects,
+                          const int objects_count,
+                          const Voxel v) {
     
     int i = 0;
     int j = objects_count - 1;
@@ -201,11 +212,12 @@ static inline int filter_overlapped_objects(Object3d ** objects,
     return i;
 }
 
-static inline void split_voxel(const Voxel v,
-                               const enum Plane p,
-                               const Coord c,
-                               Voxel * const vl,
-                               Voxel * const vr) {
+static inline void
+split_voxel(const Voxel v,
+            const enum Plane p,
+            const Coord c,
+            Voxel * const vl,
+            Voxel * const vr) {
     
     *vl = v;
     *vr = v;
@@ -228,46 +240,134 @@ static inline void split_voxel(const Voxel v,
     }
 }
 
-static inline void find_plane(Object3d ** objects,
-                              const int objects_count,
-                              const Voxel v,
-                              enum Plane * const p,
-                              Coord * const c) {
+/*
+ * Using Surface Area Heuristic (SAH) for finding best split pane
+ *
+ * SAH = voxel_surface_area * number_of_objects_in_voxel
+ *
+ * splitted_SAH = split_cost
+ *                + left_voxel_surface_area * number_of_objects_in_left_voxel
+ *                + right_voxel_surface_area * number_of_objects_in_right_voxel
+ *
+ *
+ * see: http://stackoverflow.com/a/4633332/653511
+ */
+static inline void
+find_plane(Object3d ** objects,
+           const int objects_count,
+           const Voxel v,
+           const int tree_depth,
+           enum Plane * const p,
+           Coord * const c) {
     
-    // TODO use Surface Area Heuristic (SAH)
-    Float dx = v.x_max - v.x_min;
-    Float dy = v.y_max - v.y_min;
-    Float dz = v.z_max - v.z_min;
+    if((tree_depth >= MAX_TREE_DEPTH) || (objects_count <= OBJECTS_IN_LEAF)) {
+        *p = NONE;
+        return;
+    }
+    
+    Float hx = v.x_max - v.x_min;
+    Float hy = v.y_max - v.y_min;
+    Float hz = v.z_max - v.z_min;
+    
+    Float Sxy = hx * hy;
+    Float Sxz = hx * hz;
+    Float Syz = hy * hz;
+    
+    int max_splits = MAX_SPLITS_OF_VOXEL;
+    float split_cost = SPLIT_COST;
+    
+    // Assume that at the beginning best SAH has initial voxel
+    Float bestSAH = (Sxy + Sxz + Syz) * objects_count;
+    // initial voxel doesn't have split pane
+    *p = NONE;
+    
+    Float currSAH;
+    Coord curr_split_coord;
+    int i;
+    Voxel vl;
+    Voxel vr;
+    Float a;
+    
+    // Let's find split surface, which have the least SAH
+    
+    // XY
+    for(i = 1; i < max_splits; i++) {
 
-    if((dx >= dy) && (dx >= dz)) {
-        *p = YZ;
-        c->x = v.x_min + dx / 2.0;
-        return;
-    } else if((dy >= dx) && (dy >= dz)) {
-        *p = XZ;
-        c->y = v.y_min + dy / 2.0;
-        return;
-    } else {
-        *p = XY;
-        c->z = v.z_min + dz / 2.0;
-        return;
+        a = ((float) i) / max_splits;
+        
+        // Current coordinate of split surface
+        curr_split_coord.z = v.z_min + a * hz;
+        
+        split_voxel(v, XY, curr_split_coord, &vl, &vr);
+        
+        currSAH = (Sxy +      a  * (Sxz + Syz)) * objects_in_voxel(objects, objects_count, vl)
+                + (Sxy + (1 - a) * (Sxz + Syz)) * objects_in_voxel(objects, objects_count, vr) + split_cost;
+        
+        if(currSAH < bestSAH) {
+            bestSAH = currSAH;
+            *p = XY;
+            *c = curr_split_coord;
+        }
+    }
+    
+    // XZ
+    for(i = 1; i < max_splits; i++) {
+        
+        a = ((float) i) / max_splits;
+
+        // Current coordinate of split surface       
+        curr_split_coord.y = v.y_min + a * hy;
+        
+        split_voxel(v, XZ, curr_split_coord, &vl, &vr);
+        
+        currSAH = (Sxz +      a  * (Sxy + Syz)) * objects_in_voxel(objects, objects_count, vl)
+                + (Sxz + (1 - a) * (Sxy + Syz)) * objects_in_voxel(objects, objects_count, vr) + split_cost;
+        
+        if(currSAH < bestSAH) {
+            bestSAH = currSAH;
+            *p = XZ;
+            *c = curr_split_coord;
+        }
+    }
+    
+    // YZ
+    for(i = 1; i < max_splits; i++) {
+        
+        a = ((float) i) / max_splits;
+        
+        // Current coordinate of split surface
+        curr_split_coord.x = v.x_min + a * hx;
+        
+        split_voxel(v, YZ, curr_split_coord, &vl, &vr);
+        
+        currSAH = (Syz +      a  * (Sxy + Sxz)) * objects_in_voxel(objects, objects_count, vl)
+                + (Syz + (1 - a) * (Sxy + Sxz)) * objects_in_voxel(objects, objects_count, vr) + split_cost;
+        
+        if(currSAH < bestSAH) {
+            bestSAH = currSAH;
+            *p = YZ;
+            *c = curr_split_coord;
+        }
     }
 }
 
-static inline Boolean terminate(Object3d ** objects,
-                                const int objects_count,
-                                const Voxel v,
-                                const int recursion_level) {
+static inline int
+objects_in_voxel(Object3d ** objects,
+                 const int objects_count,
+                 const Voxel v) {
     
-    // TODO use SAH
-    if((recursion_level < MAX_TREE_DEPTH) && (objects_count > OBJECTS_IN_LEAF)) {
-        return False;
-    }
-    return True;
+    int i;
+    int count = 0;
+    for(i = 0; i < objects_count; i++)
+        if(object_in_voxel(objects[i], v))
+            ++count;
+    
+    return count;
 }
 
-Voxel make_initial_voxel(Object3d ** objects,
-                         int objects_count) {
+Voxel
+make_initial_voxel(Object3d ** objects,
+                   int objects_count) {
     
     if(!objects_count) {
         Voxel v = {-1, -1, -1, 1, 1, 1};
@@ -304,8 +404,9 @@ Voxel make_initial_voxel(Object3d ** objects,
 }
 
 
-static inline __hot Boolean object_in_voxel(Object3d * const obj,
-                                            const Voxel v) {
+static inline __hot Boolean
+object_in_voxel(Object3d * const obj,
+                const Voxel v) {
     
     Point3d min_p = obj->get_min_boundary_point(obj->data);
     Point3d max_p = obj->get_max_boundary_point(obj->data);
@@ -320,8 +421,9 @@ static inline __hot Boolean object_in_voxel(Object3d * const obj,
     return True;
 }
 
-KDNode * make_leaf(Object3d ** objects,
-                   int objects_count) {
+inline KDNode *
+make_leaf(Object3d ** objects,
+          int objects_count) {
     
     KDNode * leaf = malloc(sizeof(KDNode));
     leaf->plane = NONE;
@@ -339,14 +441,15 @@ KDNode * make_leaf(Object3d ** objects,
     return leaf;
 }
 
-static inline __hot Boolean vector_plane_intersection(const Vector3d vector,
-                                                      const Point3d vector_start,
-                                                      const enum Plane plane,
-                                                      const Coord coord,
-                                                      Point3d * const result,
-                                                      Float * const t) {
-    Float k;
+static inline __hot Boolean
+vector_plane_intersection(const Vector3d vector,
+                          const Point3d vector_start,
+                          const enum Plane plane,
+                          const Coord coord,
+                          Point3d * const result,
+                          Float * const t) {
     
+    Float k;    
     switch(plane) {
         case XY:
             k = (coord.z - vector_start.z) / vector.z;
@@ -375,11 +478,12 @@ static inline __hot Boolean vector_plane_intersection(const Vector3d vector,
     return True;
 }
 
-static inline Boolean voxel_intersection(const Vector3d vector,
-                                         const Point3d vector_start,
-                                         const Voxel v,
-                                         Float * const t_near,
-                                         Float * const t_far) {
+static inline Boolean
+voxel_intersection(const Vector3d vector,
+                   const Point3d vector_start,
+                   const Voxel v,
+                   Float * const t_near,
+                   Float * const t_far) {
     
     Float t_min;
     Float t_max;
@@ -509,7 +613,7 @@ find_intersection_tree(KDTree * const tree,
                                       nearest_intersection_point_dist_ptr));
 }
 
-Boolean
+inline Boolean
 find_intersection_node(KDNode * const node,
                        const Voxel v,
                        const Point3d vector_start,
@@ -657,7 +761,7 @@ is_intersect_anything_tree(KDTree * const tree,
                                           vector));
 }
 
-Boolean
+inline Boolean
 is_intersect_anything_node(KDNode * const node,
                            const Voxel v,
                            const Point3d vector_start,

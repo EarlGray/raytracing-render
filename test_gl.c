@@ -22,7 +22,7 @@
 
 #include "scene1.h"
 
-#define USE_MT  (1)
+#define USE_MT  (0)
 
 GLint win_width = 512;
 GLint win_height = 512;
@@ -196,5 +196,7 @@ int main(int argc, char *argv[]) {
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, TEX_WIDTH, TEX_HEIGHT, 0, GL_RGB, GL_UNSIGNED_BYTE, canvas);
         
     glutMainLoop();
+
+    return 0;
 }
 

@@ -71,41 +71,60 @@ release_scene(Scene * scene) {
 
 void
 rotate_scene(Scene * const scene,
-             const Float al,
              const Float be,
+             const Float al,
              const Boolean rotate_light_sources) {
     
-    scene->al = al;
-    scene->be = be;
-    
-    scene->sin_be = sin(scene->al);
-    scene->cos_be = cos(scene->al);
-    scene->sin_al = sin(scene->be);
-    scene->cos_al = cos(scene->be);
+    if(fabs(scene->be - be) > EPSILON) {
+        scene->be = be;
+        scene->sin_be = sin(scene->be);
+        scene->cos_be = cos(scene->be);
+    }
+
+    if(fabs(scene->al - al) > EPSILON) {
+        scene->al = al;
+        scene->sin_al = sin(scene->al);
+        scene->cos_al = cos(scene->al);
+    }
     
     int i;
     LightSource3d * light;
-    if(!rotate_light_sources) {
-        for(i = 0; i < scene->light_sources_count; i++) {
-            if(scene->light_sources[i]) {
-                light = scene->light_sources[i];
+    for(i = 0; i < scene->light_sources_count; i++) {
+        if(scene->light_sources[i]) {
+            light = scene->light_sources[i];
+            
+            if(!rotate_light_sources) {
                 light->location = rotate_point(light->location_world,
                                                scene->sin_al,
                                                scene->cos_al,
                                                scene->sin_be,
                                                scene->cos_be);
+            } else {
+                light->location = light->location_world;
             }
         }
     }
 }
 
 void
-add_object(Scene * const scene,
-           Object3d * const object) {
+add_object_and_prepare_scene(Scene * const scene,
+                             Object3d * const object) {
         
     scene->objects[++scene->last_object_index] = object;
     
     rebuild_kd_tree(scene);
+}
+
+void
+add_object(Scene * const scene,
+           Object3d * const object) {
+    
+    scene->objects[++scene->last_object_index] = object;
+}
+
+void
+prepare_scene(Scene * const scene) {
+    rebuild_kd_tree(scene);    
 }
 
 void
