@@ -15,44 +15,51 @@
 // Declarations
 // --------------------------------------------------------------
 
-static inline Boolean is_viewable(Point3d target_point,
-                                  Point3d starting_point,
-                                  Scene * scene);
+static inline Boolean
+is_viewable(Point3d target_point,
+            Point3d starting_point,
+            Scene * scene);
 
-static inline Color get_lighting_color(Point3d point,
-                                       Vector3d norm_v,
-                                       Scene * scene);
+static inline Color
+get_lighting_color(Point3d point,
+                   Vector3d norm_v,
+                   Scene * scene);
 
-static inline Color get_specular_color(Point3d point,
-                                       Vector3d reflected_ray,
-                                       Scene * scene, Float p);
+static inline Color
+get_specular_color(Point3d point,
+                   Vector3d reflected_ray,
+                   Scene * scene, Float p);
 
-static inline Vector3d reflect_ray(Vector3d incident_ray,
-                                   Vector3d norm_v);
+static inline Vector3d
+reflect_ray(Vector3d incident_ray,
+            Vector3d norm_v);
 
-static inline Color calculate_color(Scene * scene,
-                                    Point3d vector_start,
-                                    Vector3d vector,
-                                    Object3d ** obj_ptr,
-                                    Point3d * point_ptr,
-                                    Float * dist_ptr,
-                                    Float intensity,
-                                    int recursion_level);
+static inline Color
+calculate_color(Scene * scene,
+                Point3d vector_start,
+                Vector3d vector,
+                Object3d ** obj_ptr,
+                Point3d * point_ptr,
+                Float * dist_ptr,
+                Float intensity,
+                int recursion_level);
 
-void trace_recursively(Scene * scene,
-                       Point3d vector_start,
-                       Vector3d vector,
-                       Color * color,
-                       Float intensity,
-                       int recursion_level);
+void
+trace_recursively(Scene * scene,
+                  Point3d vector_start,
+                  Vector3d vector,
+                  Color * color,
+                  Float intensity,
+                  int recursion_level);
 
 // Code
 // --------------------------------------------------------------
 
-void trace(Scene * scene,
-           Point3d vector_start,
-           Vector3d vector,
-           Color * color) {
+void
+trace(Scene * scene,
+      Point3d vector_start,
+      Vector3d vector,
+      Color * color) {
     
     Point3d r_vector_start = rotate_point(vector_start, scene->sin_al, scene->cos_al, scene->sin_be, scene->cos_be);
     Vector3d r_vector = rotate_vector(vector, scene->sin_al, scene->cos_al, scene->sin_be, scene->cos_be);
@@ -65,12 +72,13 @@ void trace(Scene * scene,
                       0);
 }
 
-void trace_recursively(Scene * scene,
-                       Point3d vector_start,
-                       Vector3d vector,
-                       Color * color,
-                       Float intensity,
-                       int recursion_level) {
+void
+trace_recursively(Scene * scene,
+                  Point3d vector_start,
+                  Vector3d vector,
+                  Color * color,
+                  Float intensity,
+                  int recursion_level) {
 
     normalize_vector(&vector);
     
@@ -100,14 +108,15 @@ void trace_recursively(Scene * scene,
     *color = scene->background_color;
 }
 
-static inline Color calculate_color(Scene * scene,
-                                    Point3d vector_start,
-                                    Vector3d vector,
-                                    Object3d ** obj_ptr,
-                                    Point3d * point_ptr,
-                                    Float * dist_ptr,
-                                    Float intensity,
-                                    int recursion_level) {
+static inline Color
+calculate_color(Scene * scene,
+                Point3d vector_start,
+                Vector3d vector,
+                Object3d ** obj_ptr,
+                Point3d * point_ptr,
+                Float * dist_ptr,
+                Float intensity,
+                int recursion_level) {
 
     Object3d * obj = *obj_ptr;
     Point3d point = *point_ptr;
@@ -123,6 +132,12 @@ static inline Color calculate_color(Scene * scene,
     Color diffuse_color;
     Color reflected_color;
     Color specular_color;
+    
+    Float fog_density = 0;
+    if(scene->fog_density) {
+        fog_density = scene->fog_density(dist, scene->fog_parameters);
+    }
+    
     
     Vector3d reflected_ray;
     if((material.Ks) || (material.Kr)) {        
@@ -165,7 +180,7 @@ static inline Color calculate_color(Scene * scene,
                               point,
                               reflected_ray,
                               &reflected_color,
-                              intensity * material.Kr,
+                              intensity * material.Kr * (1 - fog_density),
                               recursion_level + 1);
         } else {
             reflected_color = scene->background_color;
@@ -192,7 +207,6 @@ static inline Color calculate_color(Scene * scene,
     }
     
     if(scene->fog_density) {
-        Float fog_density = scene->fog_density(dist, scene->fog_parameters);
         result_color = add_colors(
                                   mul_color(scene->background_color, fog_density),
                                   mul_color(result_color, 1 - fog_density));
@@ -201,9 +215,11 @@ static inline Color calculate_color(Scene * scene,
     return result_color;
 }
 
-static inline Color get_lighting_color(Point3d point,
-                                       Vector3d norm_v,
-                                       Scene * scene) {
+static inline Color
+get_lighting_color(Point3d point,
+                   Vector3d norm_v,
+                   Scene * scene) {
+    
     Color light_color = rgb(0, 0, 0);
     
     normalize_vector(&norm_v);
@@ -233,10 +249,12 @@ static inline Color get_lighting_color(Point3d point,
     return light_color;
 }
 
-static inline Color get_specular_color(Point3d point,
-                                       Vector3d reflected_ray,
-                                       Scene * scene,
-                                       Float p) {
+static inline Color
+get_specular_color(Point3d point,
+                   Vector3d reflected_ray,
+                   Scene * scene,
+                   Float p) {
+    
     Color light_color = rgb(0, 0, 0);
     
     normalize_vector(&reflected_ray);
@@ -266,9 +284,10 @@ static inline Color get_specular_color(Point3d point,
     return light_color;
 }
 
-static inline Boolean is_viewable(Point3d target_point,
-                                  Point3d starting_point,
-                                  Scene * scene) {
+static inline Boolean
+is_viewable(Point3d target_point,
+            Point3d starting_point,
+            Scene * scene) {
     
     Vector3d ray = vector3dp(starting_point, target_point);
     normalize_vector(&ray);
@@ -312,12 +331,14 @@ static inline Vector3d reflect_ray(Vector3d incident_ray,
  *
  * TODO remove this function in future
  */
-int find_intersection(Scene * scene,
-                      Point3d vector_start,
-                      Vector3d vector,
-                      Object3d ** nearest_obj_ptr,
-                      Point3d * nearest_intersection_point_ptr,
-                      Float * nearest_intersection_point_dist_ptr) {
+int
+find_intersection(Scene * scene,
+                  Point3d vector_start,
+                  Vector3d vector,
+                  Object3d ** nearest_obj_ptr,
+                  Point3d * nearest_intersection_point_ptr,
+                  Float * nearest_intersection_point_dist_ptr) {
+    
     int i;
     Object3d * obj = NULL;
     Point3d intersection_point;
