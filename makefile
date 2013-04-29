@@ -4,8 +4,8 @@ render_dir 	=	./render/lib
 render_lib	=	$(render_dir)/librender.a
 
 LIBPATH		=	$(addprefix -L, $(render_dir))
-INCLUDES	=	-O2 $(addprefix -I, ./render/headers)
-LINKLIBS	= 	-lrender -lm
+INCLUDES	=	-O2 $(addprefix -I, ./render/include)
+LINKLIBS	= 	-lrender -lm -lpthread
 
 frame_dir	=	./frames
 
@@ -15,8 +15,6 @@ frame_dir	=	./frames
 
 ifeq ($(UNAME), Darwin)
 CC_OPTS_TEST_GL = -framework GLUT -framework OpenGL -DDARWIN
-# Generating by gcc in Mac OS
-d_sym	= *.dSYM
 else
 CC_OPTS_TEST_GL = -lglut -DPOSIX
 endif
@@ -30,6 +28,10 @@ endif
 #
 # Demo applications
 #
+
+thread_pool_stress_test: thread_pool_stress_test.c $(render_lib)
+	gcc thread_pool_stress_test.c $(INCLUDES) $(LIBPATH) $(LINKLIBS) -o $@
+	./thread_pool_stress_test
 
 test_video: test $(frame_dir)
 	cd $(frame_dir) && ../test
@@ -56,41 +58,16 @@ mt_render.o: mt_render.c
 #
 # Render
 #
-
-$(render_dir):
-	mkdir -p $@
-
-$(render_dir)/canvas.o: ./render/source/canvas.c ./render/headers/canvas.h ./render/headers/color.h $(render_dir)
-	gcc -c ./render/source/canvas.c $(INCLUDES) -o $@
-
-$(render_dir)/scene.o: ./render/source/scene.c ./render/headers/render.h ./render/headers/color.h $(render_dir)
-	gcc -c ./render/source/scene.c $(INCLUDES) -o $@
-
-$(render_dir)/fog.o: ./render/source/fog.c ./render/headers/render.h $(render_dir)
-	gcc -c ./render/source/fog.c $(INCLUDES) -o $@
-
-$(render_dir)/render.o: ./render/source/render.c ./render/headers/render.h ./render/headers/color.h $(render_dir)
-	gcc -c ./render/source/render.c $(INCLUDES) -o $@
-
-$(render_dir)/triangle.o: ./render/source/triangle.c ./render/headers/render.h ./render/headers/color.h $(render_dir)
-	gcc -c ./render/source/triangle.c $(INCLUDES) -o $@
-
-$(render_dir)/sphere.o: ./render/source/sphere.c ./render/headers/render.h ./render/headers/color.h $(render_dir)
-	gcc -c ./render/source/sphere.c $(INCLUDES) -o $@
-
-$(render_dir)/kdtree.o: ./render/source/kdtree.c ./render/headers/kdtree.h ./render/headers/render.h $(render_dir)
-	gcc -c ./render/source/kdtree.c $(INCLUDES) -o $@
-
-$(render_lib): $(render_dir)/render.o $(render_dir)/triangle.o $(render_dir)/sphere.o $(render_dir)/kdtree.o $(render_dir)/scene.o $(render_dir)/fog.o $(render_dir)/canvas.o
-	ar -rcs $@ $^
+$(render_lib):
+	(cd ./render && make ./lib/librender.a)
 
 #
 # Routines
 #
 .PHONY: clean
 clean:
+	(cd ./render && make clean)	    &&\
 	rm -f *.o;                            \
-	rm -f ./test ./test_gl ./test_kd;     \
+	rm -f ./test ./test_gl ./test_kd ./thread_pool_stress_test;     \
 	rm -f *.mp4;                          \
-	rm -rf *.dSYM                         \
-	rm -rf $(render_dir) $(frame_dir)
+	rm -rf $(frame_dir)			\
