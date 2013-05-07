@@ -5,7 +5,8 @@ render_lib	=	$(render_dir)/librender.a
 
 LIBPATH		=	$(addprefix -L, $(render_dir))
 INCLUDES	=	-O2 $(addprefix -I, ./render/include)
-LINKLIBS	= 	-lrender -lm -lpthread
+LINKLIBS	= 	-lrender -lm -pthread
+THREADS_NUM	=	9
 
 frame_dir	=	./frames
 
@@ -43,8 +44,14 @@ test: test.c scene1.h scene1.o $(render_lib)
 rungl: test_gl
 	./$<
 
+rungl_2: test_gl_2
+	./$< $(THREADS_NUM)
+
 test_gl: $(render_lib) scene1.o mt_render.o mt_render.h scene1.h test_gl.c 
 	gcc -pthread test_gl.c scene1.o mt_render.o $(CC_OPTS) $(INCLUDES) $(LINK_OPTS) $(LIBPATH) $(LINKLIBS) -o $@
+
+test_gl_2: $(render_lib) scene1.o scene1.h test_gl_2.c 
+	gcc -pthread test_gl_2.c scene1.o $(CC_OPTS) $(INCLUDES) $(LINK_OPTS) $(LIBPATH) $(LINKLIBS) -o $@
 
 $(frame_dir):
 	mkdir -p $@
@@ -68,6 +75,6 @@ $(render_lib):
 clean:
 	(cd ./render && make clean)	    &&\
 	rm -f *.o;                            \
-	rm -f ./test ./test_gl ./test_kd ./thread_pool_stress_test;     \
+	rm -f ./test ./test_gl ./test_kd ./thread_pool_stress_test ./test_gl_2;     \
 	rm -f *.mp4;                          \
 	rm -rf $(frame_dir)			\

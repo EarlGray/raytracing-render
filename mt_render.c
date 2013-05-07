@@ -18,27 +18,6 @@
 
 #define assertf(cond, ...) do { if (cond) { fprintf(stderr, __VA_ARGS__); exit(1); } } while (0)
 
-/*
- * An explanation:
- *   since the worker pool has to share two kind of resources:
- *    - a scene to be rendered: it must not change while workers are doing the work;
- *    - a canvas which the scene is rendered to: it must not change when the main thread
- *      is using it (workers must sleep at that period);
- *   we have to set two points of synchronization:
- *    - a start point: when the scene is ready to be rendered to the canvas;
- *    - a finish point: when the canvas is done;
- *
- * The main thread (the UI thread, the managing thread) signals about "the scene is ready"
- *    by broadcast_start(), which awakens all workers which are in wait_for_start() state.
- * Then the main thread may do its own work or just wait for the workers by calling
- *    mt_render_wait().
- * Both the workers and the main must syncrhonize when the canvas is rendered completely,
- *    to have a consistent state of the canvas. This is done by wait_for_done(), - this is
- *    a barrier: the main thread may start using the completed canvas, it may change the scene
- *    now, do OpenGL work, etc, whereas workers go to the wait_for_start(), waiting for
- *    the next frame.
- */
-
 static void broadcast_start(mt_tasks_t *t) {
     /* broadcast start condition for workers */
     int ret = 0;
@@ -130,30 +109,17 @@ static void *task_thread(void *arg) {
     int ret = 0;
 
     while (1) {
-        /* all worker threads wait until it is safe to render a new frame
-         * This condition is fired from the managing thread in mt_render_start()
-         */
         wait_for_start(w);
 
-        /* do the work: this is the calculating payload
-         * All the heavy task-crunching is done here
-         */
+        /* do the work */
         ret = w->work(w);
         if (ret) {
             logf("Thread[%d]: worker returned %d\n", w->num, ret);
         }
 
-        /* Tell the world that my part of work is finished,
-         * it might be that all other workers are already done */
         broadcast_done(w);
 
-        /* Wait for the rest of workers who has not finished their parts yet
-         * If I am the last thread, signal the main thread that the common
-         * work is done
-         * */
         wait_for_done(t, w);
-
-        /* Here the common work is completed */
     }
 
     return 0;
@@ -200,18 +166,10 @@ mt_tasks_t * mt_new_pool(work_func_t work) {
 }
 
 void mt_render_start(mt_tasks_t *t) {
-    /* This is a moment when we want to start all sleeping threads in the pool from the 
-     * main thread.
-     * Worder threads will calculate the parts of the frame in parallel until all of them 
-     * will have finished their part.
-     * Then the all_done condition will be broadcast to notify this thread that all workers 
-     * have completed their work and a frame is ready to be rendered.
-     */ 
     broadcast_start(t);
 }
 
 void mt_render_wait(mt_tasks_t *t) {
-    /* Here the main thread wait until the frame is completed */
     wait_for_done(t, NULL);
 }
 
