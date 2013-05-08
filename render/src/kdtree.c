@@ -10,9 +10,9 @@
 
 #define MAX_TREE_DEPTH 15
 
-#define OBJECTS_IN_LEAF 3
+#define OBJECTS_IN_LEAF 1
 
-#define MAX_SPLITS_OF_VOXEL 20
+#define MAX_SPLITS_OF_VOXEL 100
 
 #define SPLIT_COST 15
 
@@ -114,9 +114,9 @@ static inline Boolean
 point_in_voxel(const Point3d p,
                const Voxel v) {
     
-    return ((p.x > v.x_min - EPSILON) && (p.x < v.x_max + EPSILON) &&
-            (p.y > v.y_min - EPSILON) && (p.y < v.y_max + EPSILON) &&
-            (p.z > v.z_min - EPSILON) && (p.z < v.z_max + EPSILON));
+    return ((p.x > v.x_min) && (p.x < v.x_max) &&
+            (p.y > v.y_min) && (p.y < v.y_max) &&
+            (p.z > v.z_min) && (p.z < v.z_max));
 }
 
 
@@ -236,6 +236,11 @@ split_voxel(const Voxel v,
         case YZ:
             vl->x_max = c.x;
             vr->x_min = c.x;
+            break;
+        case NONE:
+            // Unreachable case
+            printf("[split_voxel] Plane is NONE. Error");
+            exit(1);
             break;
     }
 }
@@ -483,6 +488,12 @@ vector_plane_intersection(const Vector3d vector,
                               vector_start.y + vector.y * k,
                               vector_start.z + vector.z * k);
             break;
+            
+        case NONE:
+            // Unreachable case
+            printf("[vector_plane_intersection] Plane is NONE. Error");
+            exit(1);
+            break;
     }
     
     *t = k;
@@ -507,8 +518,8 @@ voxel_intersection(const Vector3d vector,
     
     c.z = v.z_min;
     if(vector_plane_intersection(vector, vector_start, XY, c, &p, &t)
-       && (p.x > v.x_min - EPSILON) && (p.x < v.x_max + EPSILON)
-       && (p.y > v.y_min - EPSILON) && (p.y < v.y_max + EPSILON)) {
+       && (p.x > v.x_min) && (p.x < v.x_max)
+       && (p.y > v.y_min) && (p.y < v.y_max)) {
         
         if(!intersected) {
             t_min = t;
@@ -522,8 +533,8 @@ voxel_intersection(const Vector3d vector,
     
     c.z = v.z_max;
     if(vector_plane_intersection(vector, vector_start, XY, c, &p, &t)
-       && (p.x > v.x_min - EPSILON) && (p.x < v.x_max + EPSILON)
-       && (p.y > v.y_min - EPSILON) && (p.y < v.y_max + EPSILON)) {
+       && (p.x > v.x_min) && (p.x < v.x_max)
+       && (p.y > v.y_min) && (p.y < v.y_max)) {
         
         if(!intersected) {
             t_min = t;
@@ -537,8 +548,8 @@ voxel_intersection(const Vector3d vector,
     
     c.y = v.y_min;
     if(vector_plane_intersection(vector, vector_start, XZ, c, &p, &t)
-       && (p.x > v.x_min - EPSILON) && (p.x < v.x_max + EPSILON)
-       && (p.z > v.z_min - EPSILON) && (p.z < v.z_max + EPSILON)) {
+       && (p.x > v.x_min) && (p.x < v.x_max)
+       && (p.z > v.z_min) && (p.z < v.z_max)) {
         
         if(!intersected) {
             t_min = t;
@@ -552,8 +563,8 @@ voxel_intersection(const Vector3d vector,
     
     c.y = v.y_max;
     if(vector_plane_intersection(vector, vector_start, XZ, c, &p, &t)
-       && (p.x > v.x_min - EPSILON) && (p.x < v.x_max + EPSILON)
-       && (p.z > v.z_min - EPSILON) && (p.z < v.z_max + EPSILON)) {
+       && (p.x > v.x_min) && (p.x < v.x_max)
+       && (p.z > v.z_min) && (p.z < v.z_max)) {
         
         if(!intersected) {
             t_min = t;
@@ -567,8 +578,8 @@ voxel_intersection(const Vector3d vector,
     
     c.x = v.x_min;
     if(vector_plane_intersection(vector, vector_start, YZ, c, &p, &t)
-       && (p.y > v.y_min - EPSILON) && (p.y < v.y_max + EPSILON)
-       && (p.z > v.z_min - EPSILON) && (p.z < v.z_max + EPSILON)) {
+       && (p.y > v.y_min) && (p.y < v.y_max)
+       && (p.z > v.z_min) && (p.z < v.z_max)) {
         
         if(!intersected) {
             t_min = t;
@@ -582,8 +593,8 @@ voxel_intersection(const Vector3d vector,
     
     c.x = v.x_max;
     if(vector_plane_intersection(vector, vector_start, YZ, c, &p, &t)
-       && (p.y > v.y_min - EPSILON) && (p.y < v.y_max + EPSILON)
-       && (p.z > v.z_min - EPSILON) && (p.z < v.z_max + EPSILON)) {
+       && (p.y > v.y_min) && (p.y < v.y_max)
+       && (p.z > v.z_min) && (p.z < v.z_max)) {
         
         if(!intersected) {
             t_min = t;
@@ -730,7 +741,13 @@ find_intersection_node(KDNode * const node,
                 split_voxel(v, node->plane, node->coord, &back_voxel, &front_voxel);
             }
             break;
-    }    
+            
+        case NONE:
+            // Unreachable case
+            printf("[find_intersection_node] Plane is NONE. Error");
+            exit(1);
+            break;
+    }
 
     
     Float t_near;
