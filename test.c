@@ -1,39 +1,41 @@
 #include <stdio.h>
 #include <math.h>
 
-#define PICTURES 80
+#include <thread_pool.h>
 
 #include "scene1.h"
 
-Point3d camera_point = { X_CAM, Y_CAM, Z_CAM };
+#define CANVAS_W 200
+#define CANVAS_H 200
+
+#define PICTURES_COUNT 80
 
 int main() {
-    Scene *scene = makeScene();
-
-    int i;
-    int j;
-    Color col;
+    Scene * scene = makeScene();
+    
     Canvas * canv = new_canvas(CANVAS_W, CANVAS_H);
-    Point3d camera_point = point3d(X_CAM, Y_CAM, Z_CAM);
     
-    int k;
-    float delta_al = 2 * M_PI / PICTURES;
+    Camera * camera = new_camera(point3d(0, 0, 0), M_PI, M_PI / 2, 200);
+    
+    ThreadPool * thread_pool = new_thread_pool(8);
+    
     char filename[30];
+
+    int k;
     
-    for(k = 1; k <= PICTURES; k++) {
-        rotate_scene(scene, k * delta_al, M_PI * 3 / 5, ROTATE_LIGHT_SOURCES);
+    for(k = 1; k <= PICTURES_COUNT; k++) {
+
+        rotate_camera(camera, -0.08, 0);
         
-        for(i = MIN_X; i < MAX_X; i++) {
-            for(j = MIN_Y; j < MAX_Y; j++) {
-                trace(scene, camera_point, vector3df(i, j, PROJ_PLANE_Z), &col);
-                
-                set_pixel(i - MIN_X, j - MIN_Y, col, canv);
-            }
-        }
+        render_scene(scene,
+                     camera,
+                     canv,
+                     thread_pool);
         
         sprintf(filename, "out_%03d.bmp", k);
         write_bmp(filename, canv);
         clear_canvas(canv);
+        printf("%s\n", filename);
     }
     
     release(canv);
