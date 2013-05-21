@@ -4,9 +4,9 @@
 
 #include "scene1.h"
 
-#define BACKGROUND_COLOR rgb(255, 255, 255)
+#define BACKGROUND_COLOR rgb(55, 155, 255)
 
-#define MAX_POLYGONS_NUMBER 50000
+#define MAX_POLYGONS_NUMBER 350000
 
 #define MAX_LIGHT_SOURCES_NUMBER 5
 
@@ -25,9 +25,9 @@ void add_pyramid(Scene * scene,
 Scene *makeScene(void) {
     Scene * scene = new_scene(MAX_POLYGONS_NUMBER, MAX_LIGHT_SOURCES_NUMBER, BACKGROUND_COLOR);
     
-    add_light_source(scene, light_source_3d(point3d(0, 0, 200), rgb(255, 255, 255)));
+    add_light_source(scene, light_source_3d(point3d(900, 2000, 2000), rgb(255, 155, 55)));
 
-    set_exponential_fog(scene, 0.005);
+    //set_exponential_fog(scene, 0.005);
 
     add_cube(scene, point3d(60, 60, -60), 90, material(3, 7, 0, 0, 0, 0));
     
@@ -43,15 +43,15 @@ Scene *makeScene(void) {
                           material(1, 5, 0, 0, 0, 0), rgb(240, 210, 40));
     
     add_object(scene, new_triangle(
-                                     point3d(-300, -300, -80),
-                                     point3d(300, -300, -80),
-                                     point3d(300, 300, -80),
+                                     point3d(-1000, -1000, -80),
+                                     point3d(1000, -1000, -80),
+                                     point3d(1000, 1000, -80),
                                      rgb(55, 255, 55),
                                      material(1, 6, 0, 2, 0, 0)));
     add_object(scene, new_triangle(
-                                      point3d(-300, -300, -80),
-                                      point3d(-300, 300, -80),
-                                      point3d(300, 300, -80),
+                                      point3d(-1000, -1000, -80),
+                                      point3d(-1000, 1000, -80),
+                                      point3d(1000, 1000, -80),
                                       rgb(55, 255, 55),
                                       material(1, 6, 0, 2, 0, 0)));
     
@@ -63,6 +63,7 @@ Scene *makeScene(void) {
     
     SceneFaceHandlerParams load_params;
     
+    /*
     load_params =
         new_scene_face_handler_params(scene,
                                       33, 30, -100, 30,
@@ -71,24 +72,33 @@ Scene *makeScene(void) {
     load_obj("./models/lamp.obj",
              scene_face_handler,
              &load_params);
+             */
     
     load_params =
         new_scene_face_handler_params(scene,
-                                      25, 100, 100, 32,
+                                      25, 100, 100, 0,
                                       rgb(250, 200, 50),
-                                      material(1, 3, 0, 0, 0, 10));
-    load_obj("./models/teapot.obj",
+                                      material(1, 3, 0, 1, 0, 10));
+    load_obj("./models/new_csie_b1.obj",
              scene_face_handler,
              &load_params);
     
+    
     load_params =
     new_scene_face_handler_params(scene,
-                                  130, -100, 100, -80,
-                                  rgb(20, 20, 250),
+                                  1.5, -500, 100, 0,
+                                  rgb(20, 255, 151),
                                   material(1, 5, 0, 0, 0, 10));
-    load_obj("./models/man.obj",
+    load_obj("./models/tree1.obj",
              scene_face_handler,
              &load_params);
+             // */
+
+    //*
+    load_params = new_scene_face_handler_params(scene, 
+                        0.05, -500, 1000, 50, rgb(255, 255, 200), material(1, 15, 8, 0, 0, 10));
+    load_obj("./models/venusl.obj", scene_face_handler, &load_params);
+    // */
 
     printf("\nNumber of polygons: %i\n", scene->last_object_index + 1);
     

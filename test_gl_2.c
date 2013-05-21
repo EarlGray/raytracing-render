@@ -23,11 +23,11 @@
 
 #include "scene1.h"
 
-GLint win_width = 512;
-GLint win_height = 512;
+GLint win_width = 1024;
+GLint win_height = 1024;
 
-#define TEX_WIDTH  256
-#define TEX_HEIGHT 256
+#define TEX_WIDTH  1024
+#define TEX_HEIGHT 1024
 
 #define DX 10
 #define DY 10
@@ -243,7 +243,7 @@ int main(int argc, char *argv[]) {
 
     scene = makeScene();
     
-    camera = new_camera(point3d(0, 0, 0), M_PI, M_PI / 2, 200);
+    camera = new_camera(point3d(0, 2000, 0), M_PI, M_PI / 2, 200);
     camera_state_changed = True;
     
     canv = new_canvas(TEX_WIDTH, TEX_HEIGHT);
