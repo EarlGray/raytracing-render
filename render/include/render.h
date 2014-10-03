@@ -6,7 +6,11 @@
 #include <float.h>
 #include <color.h>
 #include <canvas.h>
-#include <thread_pool.h>
+
+#ifdef RAY_INTERSECTIONS_STAT
+long
+intersections_per_ray;
+#endif // RAY_INTERSECTIONS_STAT
 
 typedef
 int
@@ -23,6 +27,13 @@ Float;
 #define EPSILON 1e-5
 
 #define FLOAT_MAX DBL_MAX
+
+typedef
+struct {
+    Float x;
+    Float y;
+}
+Point2d;
 
 typedef 
 struct {
@@ -168,13 +179,17 @@ typedef
 struct {
     Point3d camera_position;
     
-    Float al;
-    Float sin_al;
-    Float cos_al;
+    Float al_x;
+    Float sin_al_x;
+    Float cos_al_x;
     
-    Float be;
-    Float cos_be;
-    Float sin_be;
+    Float al_y;
+    Float sin_al_y;
+    Float cos_al_y;
+    
+    Float al_z;
+    Float sin_al_z;
+    Float cos_al_z;
     
     Float proj_plane_dist;
 }
@@ -185,10 +200,10 @@ Camera;
  ***************************************************/
 
 void
-render_scene(Scene * scene,
-             Camera * const camera,
+render_scene(const Scene * const scene,
+             const Camera * const camera,
              Canvas * canvas,
-             ThreadPool * thread_pool);
+             const int num_threads);
 
 /***************************************************
  *                     Scene                       *
@@ -216,11 +231,10 @@ set_exponential_fog(Scene * const scene,
 void
 set_no_fog(Scene * const scene);
 
-void
-trace(Scene * scene,
-      Camera * camera,
-      Vector3d vector,
-      Color * color);
+Color
+trace(const Scene * const scene,
+      const Camera * const camera,
+      Vector3d vector);
 
 void
 add_light_source(Scene * const scene,
@@ -248,6 +262,17 @@ new_triangle_with_norms(const Point3d p1,
                         const Material material);
 
 Object3d *
+new_triangle_with_texture(const Point3d p1,
+                          const Point3d p2,
+                          const Point3d p3,
+                          const Point2d t1,
+                          const Point2d t2,
+                          const Point2d t3,
+                          Canvas * texture,
+                          const Color color,
+                          const Material material);
+
+Object3d *
 new_sphere(const Point3d center,
            const Float radius,
            const Color color,
@@ -257,8 +282,8 @@ void
 release_object3d(Object3d * obj);
 
 LightSource3d *
-light_source_3d(const Point3d location,
-                const Color color);
+new_light_source(const Point3d location,
+             const Color color);
 
 Material
 material(const Float Ka,
@@ -274,17 +299,19 @@ material(const Float Ka,
 
 Camera *
 new_camera(const Point3d camera_position,
-           const Float be,
-           const Float al,
+           const Float al_x,
+           const Float al_y,
+           const Float al_z,
            const Float proj_plane_dist);
 
 void
-delete_camera(Camera * const cam);
+release_camera(Camera * const cam);
 
 void
 rotate_camera(Camera * const cam,
-              const Float be,
-              const Float al);
+              const Float al_x,
+              const Float al_y,
+              const Float al_z);
 
 void
 move_camera(Camera * const camera,
@@ -293,6 +320,10 @@ move_camera(Camera * const camera,
 /***************************************************
  *                Point and vectors                *
  ***************************************************/
+
+static inline Point2d
+point2d(const Float x,
+        const Float y);
 
 static inline Point3d
 point3d(const Float x,
@@ -307,6 +338,14 @@ static inline Vector3d
 vector3df(const Float x,
           const Float y,
           const Float z);
+
+static inline Point2d
+point2d(const Float x,
+        const Float y) {
+    
+	const Point2d p = {.x = x, .y = y};
+	return p;
+}
 
 static inline Point3d
 point3d(const Float x,

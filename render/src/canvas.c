@@ -1,223 +1,288 @@
+#include <canvas.h>
+#include <color.h>
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <canvas.h>
 
-Canvas * new_canvas(int width, int height) {
+#include <unistd.h>
+#include <stdarg.h>
+
+#define PNG_DEBUG 3
+#include <png.h>
+
+#include <omp.h>
+
+#define IMG_CHUNK 10
+
+/* collapse is a feature from OpenMP 3 (2008) */
+#if _OPENMP < 200805
+    #define collapse(x)
+#endif
+
+#include <math.h>
+
+
+Canvas *
+new_canvas(int width,
+           int height) {
+    
 	Canvas * c = (Canvas *) malloc(sizeof(Canvas));
 	c->w = width;
 	c->h = height;
-	c->data = (Color *) calloc(width * height, sizeof(Color));
+	c->data = (Color *) calloc(width * height + 1, sizeof(Color));
 	return c;
 }
 
+void
+release_canvas(Canvas * c) {
+	free(c->data);
+	free(c);
+}
 
-void draw_line(int x1, int y1, int x2, int y2, Color c, Canvas * canv) {
-    const int deltaX = abs(x2 - x1);
-    const int deltaY = abs(y2 - y1);
-    const int signX = x1 < x2 ? 1 : -1;
-    const int signY = y1 < y2 ? 1 : -1;
-    //
-    int error = deltaX - deltaY;
-    //
-    if((x2 >= 0) && (x2 < canv->w) &&
-       (y2 >= 0) && (y2 < canv->h)) {
-        set_pixel(x2, y2, c, canv);
+void
+clear_canvas(Canvas * canv) {
+    memset(canv->data, 0, canv->w * canv->h * sizeof(Color));
+}
+
+// Just adapted from http://zarb.org/~gc/html/libpng.html
+// TODO: refactoring
+
+void
+abort_(const char * s,
+       ...) {
+    
+    va_list args;
+    va_start(args, s);
+    vfprintf(stderr, s, args);
+    fprintf(stderr, "\n");
+    va_end(args);
+    abort();
+}
+
+void
+write_png(char file_name[],
+          Canvas * canv) {
+    
+    // create file
+    FILE *fp = fopen(file_name, "wb");
+    if (!fp)
+        abort_("[write_png_file] File %s could not be opened for writing", file_name);
+    
+    // initialize stuff
+    png_structp png_ptr = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
+    if (!png_ptr)
+        abort_("[write_png_file] png_create_write_struct failed");
+    
+    png_infop info_ptr = png_create_info_struct(png_ptr);
+    if (!info_ptr)
+        abort_("[write_png_file] png_create_info_struct failed");
+    
+    if (setjmp(png_jmpbuf(png_ptr)))
+        abort_("[write_png_file] Error during init_io");
+    
+    png_init_io(png_ptr, fp);
+    
+    
+    // write header
+    if (setjmp(png_jmpbuf(png_ptr)))
+        abort_("[write_png_file] Error during writing header");
+    
+    png_byte bit_depth = 8;
+    png_byte color_type = PNG_COLOR_TYPE_RGB;
+    
+    png_set_IHDR(png_ptr, info_ptr, canv->w, canv->h,
+                 bit_depth, color_type, PNG_INTERLACE_NONE,
+                 PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
+    
+    png_write_info(png_ptr, info_ptr);
+    
+    
+    png_bytep * row_pointers = (png_bytep *) malloc(sizeof(png_bytep) * canv->h);
+    int y;
+    int x;
+    for (y=0; y < canv->h; y++) {
+        row_pointers[y] = (png_byte*) malloc(canv->w * 3 * bit_depth);
+        png_byte* row = row_pointers[y];
+        for(x = 0; x < canv->w; x++) {
+            Color c = get_pixel(x, y, canv);
+            png_byte * ptr = &(row[x * 3]);
+            ptr[0] = c.r;
+            ptr[1] = c.g;
+            ptr[2] = c.b;
+        }
     }
-    while(x1 != x2 || y1 != y2) {
-        if((x1 >= 0) && (x1 < canv->w) &&
-           (y1 >= 0) && (y1 < canv->h)) {
-            set_pixel(x1, y1, c, canv);
-        }
-        const int error2 = error * 2;
-        //
-        if(error2 > -deltaY) {
-            error -= deltaY;
-            x1 += signX;
-        }
-        if(error2 < deltaX) {
-            error += deltaX;
-            y1 += signY;
+    
+    
+    // write bytes
+    if (setjmp(png_jmpbuf(png_ptr)))
+        abort_("[write_png_file] Error during writing bytes");
+    
+    png_write_image(png_ptr, row_pointers);
+    
+    
+    // end write
+    if (setjmp(png_jmpbuf(png_ptr)))
+        abort_("[write_png_file] Error during end of write");
+    
+    png_write_end(png_ptr, NULL);
+    
+    // cleanup heap allocation
+    for (y=0; y < canv->h; y++)
+        free(row_pointers[y]);
+    free(row_pointers);
+    
+    fclose(fp);
+}
+
+Canvas *
+read_png(char * file_name) {
+    
+    unsigned char header[8];    // 8 is the maximum size that can be checked
+    
+    // open file and test for it being a png
+    FILE *fp = fopen(file_name, "rb");
+    if (!fp)
+        abort_("[read_png_file] File %s could not be opened for reading", file_name);
+    fread(header, 1, 8, fp);
+    if (png_sig_cmp(header, 0, 8))
+        abort_("[read_png_file] File %s is not recognized as a PNG file", file_name);
+    
+    
+    // initialize stuff
+    png_structp png_ptr = png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
+    
+    if (!png_ptr)
+        abort_("[read_png_file] png_create_read_struct failed");
+    
+    png_infop info_ptr = png_create_info_struct(png_ptr);
+    if (!info_ptr)
+        abort_("[read_png_file] png_create_info_struct failed");
+    
+    if (setjmp(png_jmpbuf(png_ptr)))
+        abort_("[read_png_file] Error during init_io");
+    
+    png_init_io(png_ptr, fp);
+    png_set_sig_bytes(png_ptr, 8);
+    
+    png_read_info(png_ptr, info_ptr);
+    
+    int width = png_get_image_width(png_ptr, info_ptr);
+    int height = png_get_image_height(png_ptr, info_ptr);
+    
+    png_set_interlace_handling(png_ptr);
+    png_read_update_info(png_ptr, info_ptr);
+    
+    
+    // read file
+    if (setjmp(png_jmpbuf(png_ptr)))
+        abort_("[read_png_file] Error during read_image");
+    
+    png_bytep * row_pointers = (png_bytep*) malloc(sizeof(png_bytep) * height);
+    int y;
+    for (y = 0; y < height; y++)
+        row_pointers[y] = (png_byte*) malloc(png_get_rowbytes(png_ptr,info_ptr));
+    
+    png_read_image(png_ptr, row_pointers);
+    
+    Canvas * canvas = new_canvas(width, height);
+    int x;
+    for (y=0; y < canvas->h; y++) {
+        png_byte * row = row_pointers[y];
+        for(x = 0; x < canvas->w; x++) {
+            png_byte * ptr = &(row[x * 3]);
+            
+            set_pixel(x, y, rgb(ptr[0], ptr[1], ptr[2]), canvas);
         }
     }
+    
+    
+    // cleanup heap allocation
+    for (y=0; y < canvas->h; y++)
+        free(row_pointers[y]);
+    free(row_pointers);
+    
+    fclose(fp);
+    
+    return canvas;
 }
 
-int write_bmp(char file_name[], Canvas * canv) {
-
-	void set_bfType(Byte bmp_file_header[]);
-	void set_bfSize(int size, Byte bmp_file_header[]);
-	void set_bfReserved1(Byte bmp_file_header[]);
-	void set_bfReserved2(Byte bmp_file_header[]);
-	void set_bfOffBits(Byte bmp_file_header[]);
-	int get_padding(int w);
-	void set_biSize(Byte bmp_info_header[]);
-	void set_biWidth(int w, Byte bmp_info_header[]);
-	void set_biHeight(int h, Byte bmp_info_header[]);
-	void set_biPlanes(Byte bmp_info_header[]);
-	void set_biBitCount(Byte bmp_info_header[]);
-	void set_biCompression(Byte bmp_info_header[]);
-	void set_biSizeImage(int s, Byte bmp_info_header[]);
-	void set_biXPixelsPerMeter(Byte bmp_info_header[]);
-	void set_biYPixelsPerMeter(Byte bmp_info_header[]);
-	void set_biClrUsed(Byte bmp_info_header[]);
-	void set_biClrImportant(Byte bmp_info_header[]);
-
-	int pad = get_padding(canv->w);
-	int row_len = (canv->w + pad) * 3;
-	int raster_size = row_len * canv->h;
-	int file_size = raster_size + 54;
-
-	Byte bmp_file_header[14];
-	set_bfType(bmp_file_header);
-	set_bfSize(file_size, bmp_file_header);
-	set_bfReserved1(bmp_file_header);
-	set_bfReserved2(bmp_file_header);
-	set_bfOffBits(bmp_file_header);
-
-	Byte bmp_info_header[40];
-	set_biSize(bmp_info_header);
-	set_biWidth(canv->w, bmp_info_header);
-	set_biHeight(canv->h, bmp_info_header);
-	set_biPlanes(bmp_info_header);
-	set_biBitCount(bmp_info_header);
-	set_biCompression(bmp_info_header);
-	set_biSizeImage(raster_size, bmp_info_header);
-	set_biXPixelsPerMeter(bmp_info_header);
-	set_biYPixelsPerMeter(bmp_info_header);  
-	set_biClrUsed(bmp_info_header);
-	set_biClrImportant(bmp_info_header);
-
-	FILE * f = fopen(file_name, "wb");
-	if(f == NULL) {
-		return 0;
-	}
-
-	fwrite(bmp_file_header, 1, 14, f);
-	fwrite(bmp_info_header, 1, 40, f);
-
-	int i;
-	int j;
-	Byte * row = (Byte *) calloc(row_len, 1);
-	for(i = 0; i < canv->h; i++) {
-		for(j = 0; j < canv->w; j++) {
-			Color c = get_pixel(j, canv->h - i - 1, canv);
-			row[j * 3] = c.b;
-			row[j * 3 + 1] = c.g;
-			row[j * 3 + 2] = c.r;
-		}
-		fwrite(row, 1, row_len, f);
-	}
-
-	fclose(f);
-	free(row);
-
-	return 1;
+Canvas *
+grayscale_canvas(Canvas * base,
+                 int num_threads) {
+    const int w = base->w;
+    const int h = base->h;
+    Canvas * ret = new_canvas(w, h);
+    
+    omp_set_num_threads((num_threads < 2) ? 1 : num_threads);
+    
+    int x;
+    int y;
+    #pragma omp parallel private(x, y)
+    #pragma omp for collapse(2) schedule(dynamic, IMG_CHUNK)
+    for(x = 0; x < w; ++x) {
+        for(y = 0; y < h; ++y) {
+            const Color c = get_pixel(x, y, base);
+            const Color gray = grayscale(c);
+            set_pixel(x, y, gray, ret);
+        }
+    }
+    return ret;
 }
 
-void set_bfType(Byte bmp_file_header[]) {
-	bmp_file_header[0] = 'B';
-	bmp_file_header[1] = 'M';
-}
+// Edges detection
+// See: http://en.wikipedia.org/wiki/Sobel_operator
 
-void set_bfSize(int size, Byte bmp_file_header[]) {
-	bmp_file_header[2] = (Byte) size;
-	bmp_file_header[3] = (Byte) (size >> 8);
-	bmp_file_header[4] = (Byte) (size >> 16);
-	bmp_file_header[5] = (Byte) (size >> 24);
-}
+int mattrix_x[3][3] =
+    {{-1, 0, 1},
+     {-2, 0, 2},
+     {-1, 0, 1}};
 
-void set_bfReserved1(Byte bmp_file_header[]) {
-	bmp_file_header[6] = 0;
-	bmp_file_header[7] = 0;
-}
+int mattrix_y[3][3] =
+    {{-1, -2, -1},
+     { 0,  0,  0},
+     { 1,  2,  1}};
 
-void set_bfReserved2(Byte bmp_file_header[]) {
-        bmp_file_header[8] = 0;
-        bmp_file_header[9] = 0;
-}
+Canvas *
+detect_edges_canvas(Canvas * base,
+                    int num_threads) {
 
-void set_bfOffBits(Byte bmp_file_header[]) {
-	bmp_file_header[10] = 54;
-        bmp_file_header[11] = 0;
-	bmp_file_header[12] = 0;
-        bmp_file_header[13] = 0;
-}
-
-int get_padding(int w) {
-	int padding = 4 - (w - (w / 4) * 4);
-	return (padding < 4) ? padding : 0;
-}
-
-void set_biSize(Byte bmp_info_header[]) {
-	bmp_info_header[0] = 40;
-	bmp_info_header[1] = 0;
-	bmp_info_header[2] = 0;
-	bmp_info_header[3] = 0;
-}
-
-void set_biWidth(int w, Byte bmp_info_header[]) {
-	bmp_info_header[4] = (Byte) w;
-	bmp_info_header[5] = (Byte) (w >> 8);
-	bmp_info_header[6] = (Byte) (w >> 16);
-	bmp_info_header[7] = (Byte) (w >> 24);
-}
-
-void set_biHeight(int h, Byte bmp_info_header[]) {
-        bmp_info_header[8] = (Byte) h;
-        bmp_info_header[9] = (Byte) (h >> 8);
-        bmp_info_header[10] = (Byte) (h >> 16);
-        bmp_info_header[11] = (Byte) (h >> 24);
-}
-
-
-void set_biPlanes(Byte bmp_info_header[]) {
-	bmp_info_header[12] = 1;
-        bmp_info_header[13] = 0;
-}
-
-void set_biBitCount(Byte bmp_info_header[]) {
-        bmp_info_header[14] = 24;
-        bmp_info_header[15] = 0;
-}
-
-void set_biCompression(Byte bmp_info_header[]) {
-        bmp_info_header[16] = 0;
-        bmp_info_header[17] = 0;
-	bmp_info_header[18] = 0;
-        bmp_info_header[19] = 0;
-}
-
-void set_biSizeImage(int s, Byte bmp_info_header[]) {
-        bmp_info_header[20] = (Byte) s;
-        bmp_info_header[21] = (Byte) (s >> 8);
-        bmp_info_header[22] = (Byte) (s >> 16);
-        bmp_info_header[23] = (Byte) (s >> 24);
-}
-
-void set_biXPixelsPerMeter(Byte bmp_info_header[]) {
-        bmp_info_header[24] = 0;
-        bmp_info_header[25] = 0;
-        bmp_info_header[26] = 0;
-        bmp_info_header[27] = 0;
-}
-
-void set_biYPixelsPerMeter(Byte bmp_info_header[]) {
-        bmp_info_header[28] = 0;
-        bmp_info_header[29] = 0;
-        bmp_info_header[30] = 0;
-        bmp_info_header[31] = 0;
-}
-
-void set_biClrUsed(Byte bmp_info_header[]) {
-        bmp_info_header[32] = 0;
-        bmp_info_header[33] = 0;
-        bmp_info_header[34] = 0;
-        bmp_info_header[35] = 0;
-}
-
-void set_biClrImportant(Byte bmp_info_header[]) {
-        bmp_info_header[36] = 0;
-        bmp_info_header[37] = 0;
-        bmp_info_header[38] = 0;
-        bmp_info_header[39] = 0;
+    Canvas * grayscaled_canv = grayscale_canvas(base, num_threads);
+    
+    const int w = base->w;
+    const int h = base->h;
+    Canvas * grad_canv = new_canvas(w, h);
+    
+    omp_set_num_threads((num_threads < 2) ? 1 : num_threads);
+    
+    int x;
+    int y;
+    #pragma omp parallel private(x, y)
+    #pragma omp for collapse(2) schedule(dynamic, IMG_CHUNK)
+    for(x = 1; x < w - 1; ++x) {
+        for(y = 1; y < h - 1; ++y) {
+            int i;
+            int j;
+            
+            int gx = 0;
+            for(i = -1; i < 2; ++i) {
+                for(j = -1; j < 2; ++j) {
+                    gx += mattrix_x[i + 1][j + 1] * get_pixel(x + i, y + j, grayscaled_canv).r;
+                }
+            }
+            
+            int gy = 0;
+            for(i = -1; i < 2; ++i) {
+                for(j = -1; j < 2; ++j) {
+                    gy += mattrix_y[i + 1][j + 1] * get_pixel(x + i, y + j, grayscaled_canv).r;
+                }
+            }
+            
+            Byte grad = (Byte) sqrt(gx * gx + gy * gy);
+            set_pixel(x, y, rgb(grad, grad, grad), grad_canv);
+        }
+    }
+    
+    release_canvas(grayscaled_canv);
+    return grad_canv;
 }

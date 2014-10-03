@@ -1,9 +1,7 @@
 #ifndef __CANVAS_H__
 #define __CANVAS_H__
-#include "color.h"
 
-#include <stdlib.h>
-#include <string.h>
+#include <color.h>
 
 typedef
 struct {
@@ -17,16 +15,19 @@ Canvas *
 new_canvas(int width,
            int height);
 
-static inline void
-clear_canvas(Canvas * canv) {
-    memset(canv->data, 0, canv->w * canv->h * sizeof(Color));
-}
+Canvas *
+grayscale_canvas(Canvas * base,
+                 int num_threads);
 
-static inline void
-release(Canvas * c) {
-	free(c->data);
-	free(c);
-}
+Canvas *
+detect_edges_canvas(Canvas * base,
+                    int num_threads);
+
+void
+release_canvas(Canvas * c);
+
+void
+clear_canvas(Canvas * canv);
 
 static inline void
 set_pixel(int x,
@@ -34,7 +35,7 @@ set_pixel(int x,
           Color c,
           Canvas * canv) {
     
-	int offs = y * canv->w + x;
+	const int offs = y * canv->w + x;
 	canv->data[offs] = c;
 }
 
@@ -43,18 +44,14 @@ get_pixel(int x,
           int y,
           Canvas * canv) {
     
-	int offs = y * canv->w + x;
+	const int offs = y * canv->w + x;
 	return canv->data[offs];
 }
 
-void draw_line(int x1,
-               int y1,
-               int x2,
-               int y2,
-               Color c,
-               Canvas * canv);
+Canvas *
+read_png(char * file_name);
 
-int write_bmp(char file_name[],
-              Canvas * canv);
+void write_png(char file_name[],
+               Canvas * canv);
 
 #endif //__CANVAS_H__
